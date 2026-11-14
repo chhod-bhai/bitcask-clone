@@ -14,7 +14,6 @@ const (
 )
 
 type logEntry struct {
-	crc       uint32
 	timestamp uint32
 	key       string
 	value     string
@@ -26,6 +25,10 @@ func newLogEntry(timestamp int, key, value string) logEntry {
 		key:       key,
 		value:     value,
 	}
+}
+
+func newTombstone(timestamp int, key string) logEntry {
+	return newLogEntry(timestamp, key, "")
 }
 
 func (le *logEntry) encode() []byte {
@@ -46,6 +49,7 @@ func (le *logEntry) encode() []byte {
 	offset += ValLenSize
 
 	offset += uint32(copy(buf[offset:], le.key))
+
 	copy(buf[offset:], le.value)
 
 	crcHash := crc32.ChecksumIEEE(buf[CRCSize:])
@@ -55,18 +59,20 @@ func (le *logEntry) encode() []byte {
 }
 
 func decode(buf []byte) (le logEntry, err error) {
+
+	headerLength := CRCSize + TimestampSize + KeyLenSize + ValLenSize
+	if len(buf) < int(headerLength) {
+		return le, fmt.Errorf("Invalid data, header bytes insufficient")
+	}
+
 	offset := 0
-	_, err = binary.Decode(buf[offset:offset+int(CRCSize)], binary.BigEndian, &le.crc)
+	var expectedCrc uint32
+	_, err = binary.Decode(buf[offset:offset+int(CRCSize)], binary.BigEndian, &expectedCrc)
 	if err != nil {
 		fmt.Printf("Error decoding crc %v\n", err)
 		return
 	}
 	offset += int(CRCSize)
-
-	crcHash := crc32.ChecksumIEEE(buf[CRCSize:])
-	if crcHash != le.crc {
-		return le, fmt.Errorf("CRC hash of data does not match the expected value, some bits are corrupted!")
-	}
 
 	_, err = binary.Decode(buf[offset:offset+int(TimestampSize)], binary.BigEndian, &le.timestamp)
 	if err != nil {
@@ -84,13 +90,22 @@ func decode(buf []byte) (le logEntry, err error) {
 	offset += int(KeyLenSize)
 
 	var valLen uint32
-	binary.Decode(buf[offset:offset+int(ValLenSize)], binary.BigEndian, &valLen)
-	_, err = binary.Decode(buf[offset:offset+int(KeyLenSize)], binary.BigEndian, &keyLen)
+	_, err = binary.Decode(buf[offset:offset+int(ValLenSize)], binary.BigEndian, &valLen)
 	if err != nil {
 		fmt.Printf("Error decoding value length %v\n", err)
 		return
 	}
 	offset += int(ValLenSize)
+
+	totalExpectedBufSize := headerLength + keyLen + valLen
+	if len(buf) < int(totalExpectedBufSize) {
+		return le, fmt.Errorf("Invalid data, buffer data incorrect or partially read")
+	}
+
+	crcHash := crc32.ChecksumIEEE(buf[CRCSize:])
+	if crcHash != expectedCrc {
+		return le, fmt.Errorf("CRC hash of data does not match the expected value, some data is corrupted!")
+	}
 
 	le.key = string(buf[offset : offset+int(keyLen)])
 	offset += int(keyLen)
@@ -103,11 +118,11 @@ func decode(buf []byte) (le logEntry, err error) {
 func main() {
 	fmt.Println("hello world")
 
-	testLogEntry := newLogEntry(1794596697, "hello", "world")
+	testLogEntry := newTombstone(1794596697, "hello")
 	encodedLogEntry := testLogEntry.encode()
 	fmt.Printf("Encoded log data: 0x% X\n", encodedLogEntry)
 
-	decodedLogEntry, err := decode(encodedLogEntry[2:])
+	decodedLogEntry, err := decode(encodedLogEntry)
 	if err != nil {
 		panic(err)
 	}
