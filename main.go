@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 )
 
 const (
@@ -37,12 +38,19 @@ func (le *logEntry) encode() []byte {
 	// append an empty crc on the initial run, skipping initially
 	binary.BigEndian.PutUint32(buf[offset:], le.timestamp)
 	offset += TimestampSize
+
 	binary.BigEndian.PutUint32(buf[offset:], keyLen)
 	offset += KeyLenSize
+
 	binary.BigEndian.PutUint32(buf[offset:], valLen)
 	offset += ValLenSize
+
 	offset += uint32(copy(buf[offset:], le.key))
 	copy(buf[offset:], le.value)
+
+	crcHash := crc32.ChecksumIEEE(buf[CRCSize:])
+	binary.BigEndian.PutUint32(buf, crcHash)
+
 	return buf
 }
 
@@ -54,6 +62,11 @@ func decode(buf []byte) (le logEntry, err error) {
 		return
 	}
 	offset += int(CRCSize)
+
+	crcHash := crc32.ChecksumIEEE(buf[CRCSize:])
+	if crcHash != le.crc {
+		return le, fmt.Errorf("CRC hash of data does not match the expected value, some bits are corrupted!")
+	}
 
 	_, err = binary.Decode(buf[offset:offset+int(TimestampSize)], binary.BigEndian, &le.timestamp)
 	if err != nil {
@@ -89,11 +102,12 @@ func decode(buf []byte) (le logEntry, err error) {
 
 func main() {
 	fmt.Println("hello world")
+
 	testLogEntry := newLogEntry(1794596697, "hello", "world")
 	encodedLogEntry := testLogEntry.encode()
-	fmt.Printf("0x% X\n", encodedLogEntry)
-	decodedLogEntry := logEntry{}
-	decodedLogEntry, err := decode(encodedLogEntry)
+	fmt.Printf("Encoded log data: 0x% X\n", encodedLogEntry)
+
+	decodedLogEntry, err := decode(encodedLogEntry[2:])
 	if err != nil {
 		panic(err)
 	}
