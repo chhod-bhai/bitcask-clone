@@ -15,8 +15,6 @@ const (
 type logEntry struct {
 	crc       uint32
 	timestamp uint32
-	keyLen    uint32
-	valLen    uint32
 	key       string
 	value     string
 }
@@ -47,8 +45,57 @@ func (le *logEntry) encode() []byte {
 	copy(buf[offset:], le.value)
 	return buf
 }
+
+func decode(buf []byte) (le logEntry, err error) {
+	offset := 0
+	_, err = binary.Decode(buf[offset:offset+int(CRCSize)], binary.BigEndian, &le.crc)
+	if err != nil {
+		fmt.Printf("Error decoding crc %v\n", err)
+		return
+	}
+	offset += int(CRCSize)
+
+	_, err = binary.Decode(buf[offset:offset+int(TimestampSize)], binary.BigEndian, &le.timestamp)
+	if err != nil {
+		fmt.Printf("Error decoding Timestamp %v\n", err)
+		return
+	}
+	offset += int(TimestampSize)
+
+	var keyLen uint32
+	_, err = binary.Decode(buf[offset:offset+int(KeyLenSize)], binary.BigEndian, &keyLen)
+	if err != nil {
+		fmt.Printf("Error decoding key length %v\n", err)
+		return
+	}
+	offset += int(KeyLenSize)
+
+	var valLen uint32
+	binary.Decode(buf[offset:offset+int(ValLenSize)], binary.BigEndian, &valLen)
+	_, err = binary.Decode(buf[offset:offset+int(KeyLenSize)], binary.BigEndian, &keyLen)
+	if err != nil {
+		fmt.Printf("Error decoding value length %v\n", err)
+		return
+	}
+	offset += int(ValLenSize)
+
+	le.key = string(buf[offset : offset+int(keyLen)])
+	offset += int(keyLen)
+
+	le.value = string(buf[offset : offset+int(valLen)])
+
+	return
+}
+
 func main() {
 	fmt.Println("hello world")
 	testLogEntry := newLogEntry(1794596697, "hello", "world")
-	fmt.Printf("0x% X\n", testLogEntry.encode())
+	encodedLogEntry := testLogEntry.encode()
+	fmt.Printf("0x% X\n", encodedLogEntry)
+	decodedLogEntry := logEntry{}
+	decodedLogEntry, err := decode(encodedLogEntry)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("Decoded entry is %+v\n", decodedLogEntry)
 }
