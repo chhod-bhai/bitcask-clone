@@ -15,16 +15,16 @@ const (
 )
 
 type LogEntry struct {
-	timestamp uint32
-	key       string
-	value     string
+	Timestamp uint32
+	Key       string
+	Value     string
 }
 
 func NewLogEntry(timestamp uint32, key, value string) LogEntry {
 	return LogEntry{
-		timestamp: timestamp,
-		key:       key,
-		value:     value,
+		Timestamp: timestamp,
+		Key:       key,
+		Value:     value,
 	}
 }
 
@@ -34,13 +34,13 @@ func NewTombstone(timestamp uint32, key string) LogEntry {
 
 func (le *LogEntry) Encode() []byte {
 	// buffer length: CRC(4) + TS(4) + KeyLenVar(4) + ValLenVar(4) + keyLen + valLen
-	keyLen := uint32(len(le.key))
-	valLen := uint32(len(le.value))
+	keyLen := uint32(len(le.Key))
+	valLen := uint32(len(le.Value))
 	bufLen := CRCSize + TimestampSize + KeyLenSize + ValLenSize + keyLen + valLen
 	buf := make([]byte, bufLen)
 	offset := CRCSize
 	// append an empty crc on the initial run, skipping initially
-	binary.BigEndian.PutUint32(buf[offset:], le.timestamp)
+	binary.BigEndian.PutUint32(buf[offset:], le.Timestamp)
 	offset += TimestampSize
 
 	binary.BigEndian.PutUint32(buf[offset:], keyLen)
@@ -49,9 +49,9 @@ func (le *LogEntry) Encode() []byte {
 	binary.BigEndian.PutUint32(buf[offset:], valLen)
 	offset += ValLenSize
 
-	offset += uint32(copy(buf[offset:], le.key))
+	offset += uint32(copy(buf[offset:], le.Key))
 
-	copy(buf[offset:], le.value)
+	copy(buf[offset:], le.Value)
 
 	crcHash := crc32.ChecksumIEEE(buf[CRCSize:])
 	binary.BigEndian.PutUint32(buf, crcHash)
@@ -75,7 +75,7 @@ func DecodeLogEntry(buf []byte) (le LogEntry, err error) {
 	}
 	offset += int(CRCSize)
 
-	_, err = binary.Decode(buf[offset:offset+int(TimestampSize)], binary.BigEndian, &le.timestamp)
+	_, err = binary.Decode(buf[offset:offset+int(TimestampSize)], binary.BigEndian, &le.Timestamp)
 	if err != nil {
 		fmt.Printf("Error decoding Timestamp %v\n", err)
 		return
@@ -108,10 +108,10 @@ func DecodeLogEntry(buf []byte) (le LogEntry, err error) {
 		return le, fmt.Errorf("CRC hash of data does not match the expected value, some data is corrupted!")
 	}
 
-	le.key = string(buf[offset : offset+int(keyLen)])
+	le.Key = string(buf[offset : offset+int(keyLen)])
 	offset += int(keyLen)
 
-	le.value = string(buf[offset : offset+int(valLen)])
+	le.Value = string(buf[offset : offset+int(valLen)])
 
 	return
 }
