@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"io"
 	"os"
 	"time"
@@ -33,7 +34,18 @@ func (s *store) Close() error {
 
 // Delete implements [Store].
 func (s *store) Delete(key string) error {
-	panic("unimplemented")
+	now := time.Now().Unix()
+	_, found := s.keydir[key]
+	if !found {
+		return errors.New("Cannot delete key that does not exist")
+	}
+
+	logEntry := model.NewTombstone(uint32(now), key)
+	if err := s.putEntry(key, logEntry); err != nil {
+		return err
+	}
+	delete(s.keydir, key)
+	return nil
 }
 
 // Get implements [Store].
@@ -58,28 +70,35 @@ func (s *store) Get(key string) (string, error) {
 	return le.Value, nil
 }
 
-// Put implements [Store].
-func (s *store) Put(key string, value string) error {
-	now := time.Now().Unix()
-	logEntry := model.NewLogEntry(uint32(now), key, value)
+func (s *store) putEntry(key string, le model.LogEntry) error {
 	file := s.files[s.activeFileID]
-	bytesWritten, err := file.Write(logEntry.Encode())
+	bytesWritten, err := file.Write(le.Encode())
 	if err != nil {
 		return err
 	}
-	if bytesWritten < len(value) {
+	if bytesWritten < len(le.Value) {
 		// TODO: handle partial writes later
 		return io.ErrShortWrite
 	}
 	keyDirEntry := model.KeydirEntry{
 		FileID:     s.activeFileID,
 		Offset:     s.writeOffset,
-		RecordSize: uint32(int(model.HeaderSize) + len(key) + len(value)),
-		Timestamp:  uint32(now),
+		RecordSize: uint32(int(model.HeaderSize) + len(key) + len(le.Value)),
+		Timestamp:  uint32(le.Timestamp),
 	}
 	s.writeOffset += int64(bytesWritten)
 	s.keydir[key] = keyDirEntry
 	return nil
+}
+
+// Put implements [Store].
+func (s *store) Put(key string, value string) error {
+	if value == "" {
+		return errors.New("Value cannot be empty while putting a record")
+	}
+	now := time.Now().Unix()
+	logEntry := model.NewLogEntry(uint32(now), key, value)
+	return s.putEntry(key, logEntry)
 }
 
 type Store interface {
